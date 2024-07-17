@@ -42,7 +42,8 @@ NATIVE_INT_TYPE rateGroup2Context[Svc::ActiveRateGroup::CONNECTION_COUNT_MAX] = 
 NATIVE_INT_TYPE rateGroup3Context[Svc::ActiveRateGroup::CONNECTION_COUNT_MAX] = {};
 
 // A number of constants are needed for construction of the topology. These are specified here.
-enum TopologyConstants {
+enum TopologyConstants
+{
     CMD_SEQ_BUFFER_SIZE = 5 * 1024,
     FILE_DOWNLINK_TIMEOUT = 1000,
     FILE_DOWNLINK_COOLDOWN = 1000,
@@ -83,7 +84,8 @@ Svc::Health::PingEntry pingEntries[] = {
  * allocating resources, passing-in arguments, etc. This function may be inlined into the topology setup function if
  * desired, but is extracted here for clarity.
  */
-void configureTopology() {
+void configureTopology()
+{
     // Command sequencer needs to allocate memory to hold contents of command sequences
     cmdSeq.allocateBuffer(0, mallocator, CMD_SEQ_BUFFER_SIZE);
 
@@ -132,71 +134,84 @@ void configureTopology() {
     configurationTable.entries[2] = {.depth = 100, .priority = 1};
     // Allocation identifier is 0 as the MallocAllocator discards it
     comQueue.configure(configurationTable, 0, mallocator);
+
+    bool gpio_success = gpioDriver.open(13, Drv::LinuxGpioDriver::GpioDirection::GPIO_OUT);
+    if (!gpio_success)
+    {
+        Fw::Logger::logMsg("[ERROR] Failed to open GPIO pin\n");
+    }
 }
 
 // Public functions for use in main program are namespaced with deployment name LedBlinker
-namespace LedBlinker {
-void setupTopology(const TopologyState& state) {
-    // Autocoded initialization. Function provided by autocoder.
-    initComponents(state);
-    // Autocoded id setup. Function provided by autocoder.
-    setBaseIds();
-    // Autocoded connection wiring. Function provided by autocoder.
-    connectComponents();
-    // Autocoded command registration. Function provided by autocoder.
-    regCommands();
-    // Project-specific component configuration. Function provided above. May be inlined, if desired.
-    configureTopology();
-    // Autocoded parameter loading. Function provided by autocoder.
-    // loadParameters();
-    // Autocoded task kick-off (active components). Function provided by autocoder.
-    startTasks(state);
-    // Initialize socket communication if and only if there is a valid specification
-    if (state.hostname != nullptr && state.port != 0) {
-        Os::TaskString name("ReceiveTask");
-        // Uplink is configured for receive so a socket task is started
-        comDriver.configure(state.hostname, state.port);
-        comDriver.startSocketTask(name, true, COMM_PRIORITY, Default::STACK_SIZE);
+namespace LedBlinker
+{
+    void setupTopology(const TopologyState &state)
+    {
+        // Autocoded initialization. Function provided by autocoder.
+        initComponents(state);
+        // Autocoded id setup. Function provided by autocoder.
+        setBaseIds();
+        // Autocoded connection wiring. Function provided by autocoder.
+        connectComponents();
+        // Autocoded command registration. Function provided by autocoder.
+        regCommands();
+        // Project-specific component configuration. Function provided above. May be inlined, if desired.
+        configureTopology();
+        // Autocoded parameter loading. Function provided by autocoder.
+        // loadParameters();
+        // Autocoded task kick-off (active components). Function provided by autocoder.
+        startTasks(state);
+        // Initialize socket communication if and only if there is a valid specification
+        if (state.hostname != nullptr && state.port != 0)
+        {
+            Os::TaskString name("ReceiveTask");
+            // Uplink is configured for receive so a socket task is started
+            comDriver.configure(state.hostname, state.port);
+            comDriver.startSocketTask(name, true, COMM_PRIORITY, Default::STACK_SIZE);
+        }
     }
-}
 
-// Variables used for cycle simulation
-Os::Mutex cycleLock;
-volatile bool cycleFlag = true;
+    // Variables used for cycle simulation
+    Os::Mutex cycleLock;
+    volatile bool cycleFlag = true;
 
-void startSimulatedCycle(U32 milliseconds) {
-    cycleLock.lock();
-    bool cycling = cycleFlag;
-    cycleLock.unLock();
-
-    // Main loop
-    while (cycling) {
-        LedBlinker::blockDrv.callIsr();
-        Os::Task::delay(milliseconds);
-
+    void startSimulatedCycle(U32 milliseconds)
+    {
         cycleLock.lock();
-        cycling = cycleFlag;
+        bool cycling = cycleFlag;
+        cycleLock.unLock();
+
+        // Main loop
+        while (cycling)
+        {
+            LedBlinker::blockDrv.callIsr();
+            Os::Task::delay(milliseconds);
+
+            cycleLock.lock();
+            cycling = cycleFlag;
+            cycleLock.unLock();
+        }
+    }
+
+    void stopSimulatedCycle()
+    {
+        cycleLock.lock();
+        cycleFlag = false;
         cycleLock.unLock();
     }
-}
 
-void stopSimulatedCycle() {
-    cycleLock.lock();
-    cycleFlag = false;
-    cycleLock.unLock();
-}
+    void teardownTopology(const TopologyState &state)
+    {
+        // Autocoded (active component) task clean-up. Functions provided by topology autocoder.
+        stopTasks(state);
+        freeThreads(state);
 
-void teardownTopology(const TopologyState& state) {
-    // Autocoded (active component) task clean-up. Functions provided by topology autocoder.
-    stopTasks(state);
-    freeThreads(state);
+        // Other task clean-up.
+        comDriver.stopSocketTask();
+        (void)comDriver.joinSocketTask(nullptr);
 
-    // Other task clean-up.
-    comDriver.stopSocketTask();
-    (void)comDriver.joinSocketTask(nullptr);
-
-    // Resource deallocation
-    cmdSeq.deallocateBuffer(mallocator);
-    bufferManager.cleanup();
-}
-};  // namespace LedBlinker
+        // Resource deallocation
+        cmdSeq.deallocateBuffer(mallocator);
+        bufferManager.cleanup();
+    }
+}; // namespace LedBlinker
